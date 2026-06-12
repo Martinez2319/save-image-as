@@ -30,14 +30,14 @@
 ## 📦 Instalación / Installation
 
 ### Desde Firefox Add-ons (recomendado)
-1. Visita la página de la extensión en [Firefox Browser ADD-ONS](https://addons.mozilla.org/)
+1. Visita la página de la extensión en [Firefox Browser ADD-ONS](https://addons.mozilla.org/es-MX/firefox/addon/save-image-as-pdf-png-jpg-webp/)
 2. Haz clic en **"Añadir a Firefox"**
 3. ¡Listo! Aparecerá un icono en la barra de herramientas
 
 ### Desde el código fuente (desarrollo)
 1. Clona este repositorio:
    ```bash
-   git clone https://github.com/tu-usuario/save-image-as.git
+   git clone https://github.com/Martinez2319/save-image-as.git
    ```
 2. Abre Firefox y ve a `about:debugging#/runtime/this-firefox`
 3. Haz clic en **"Cargar complemento temporal..."**

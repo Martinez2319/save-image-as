@@ -132,14 +132,14 @@ See the [LICENSE](LICENSE) file for details.
 
 Las contribuciones son bienvenidas. Si encuentras un bug o tienes una sugerencia:
 
-1. Abre un [Issue](https://github.com/tu-usuario/save-image-as/issues)
-2. Haz un [Fork](https://github.com/tu-usuario/save-image-as/fork) del proyecto
+1. Abre un [Issue](https://github.com/Martinez2319/save-image-as/issues)
+2. Haz un [Fork](https://github.com/Martinez2319/save-image-as/fork) del proyecto
 3. Envía un Pull Request
 
 Contributions are welcome. If you find a bug or have a suggestion:
 
-1. Open an [Issue](https://github.com/tu-usuario/save-image-as/issues)
-2. [Fork](https://github.com/tu-usuario/save-image-as/fork) the project
+1. Open an [Issue](https://github.com/Martinez2319/save-image-as/issues)
+2. [Fork](https://github.com/Martinez2319/save-image-as/fork) the project
 3. Submit a Pull Request
 
 ---

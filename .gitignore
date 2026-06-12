@@ -1,0 +1,20 @@
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Project specific
+*.zip
+*.onetoc2
+*.one
+
+# Node (if any)
+node_modules/
+package-lock.json

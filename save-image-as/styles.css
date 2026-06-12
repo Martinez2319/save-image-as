@@ -1,0 +1,78 @@
+/* ═══════════════════════════════════════════════════════════
+   Save image as - Floating element & highlights
+   ═══════════════════════════════════════════════════════════ */
+
+/* ─── Floating element ──────────────────────────────── */
+
+.sia-float {
+  position: fixed !important;
+  top: 50% !important;
+  right: 0 !important;
+  z-index: 2147483647 !important;
+  transform: translateY(-50%) !important;
+  pointer-events: none !important;
+}
+
+.sia-float-inner {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+  pointer-events: auto !important;
+}
+
+.sia-float-toggle,
+.sia-float-close {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 40px !important;
+  height: 40px !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 8px 0 0 8px !important;
+  background: rgba(0, 0, 0, 0.5) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  color: #fff !important;
+  cursor: pointer !important;
+  transition: background 0.15s ease, transform 0.15s ease !important;
+  box-shadow: -2px 2px 8px rgba(0, 0, 0, 0.15) !important;
+  line-height: 1 !important;
+  box-sizing: border-box !important;
+}
+
+.sia-float-toggle:hover {
+  background: rgba(0, 149, 246, 0.8) !important;
+  transform: scale(1.05) !important;
+}
+
+.sia-float-close {
+  height: 24px !important;
+  border-radius: 0 0 0 8px !important;
+  background: rgba(0, 0, 0, 0.35) !important;
+}
+
+.sia-float-close:hover {
+  background: rgba(220, 38, 38, 0.7) !important;
+}
+
+/* Estado activo */
+.sia-highlight-active .sia-float-toggle {
+  background: rgba(0, 149, 246, 0.85) !important;
+  box-shadow: -2px 2px 16px rgba(0, 149, 246, 0.4) !important;
+}
+
+/* ─── Imágenes resaltadas ──────────────────────────── */
+
+.sia-highlighted {
+  outline: 3px solid rgba(0, 149, 246, 0.6) !important;
+  outline-offset: 2px !important;
+  border-radius: 2px !important;
+  transition: outline 0.2s ease !important;
+  filter: brightness(1.05) !important;
+}
+
+.sia-highlighted:hover {
+  outline: 3px solid rgba(0, 149, 246, 1) !important;
+  filter: brightness(1.1) !important;
+}

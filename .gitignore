@@ -18,3 +18,18 @@ desktop.ini
 # Node (if any)
 node_modules/
 package-lock.json
+
+# Unrelated files in this directory (Descargas)
+*.iso
+*.deb
+*.xlsx
+*.py
+instagram-downloader/
+Instagram/
+Bloc de notas de OneNote/
+check_dev_tools.py
+universidad_snowflake.sql
+*.sql
+
+# Sensitive - DO NOT COMMIT
+martinez34242+mozilla@gmail.com*

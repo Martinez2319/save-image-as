@@ -14,5 +14,6 @@ with zipfile.ZipFile(package, "w", zipfile.ZIP_DEFLATED) as archive:
     for file in sorted(source.rglob("*")):
         if file.is_file():
             archive.write(file, file.relative_to(source).as_posix())
+    archive.write(root / "LICENSE", "LICENSE")
 (output / "SHA256.txt").write_text(hashlib.sha256(package.read_bytes()).hexdigest() + "  " + package.name + "\n", encoding="utf-8")
 print(package)

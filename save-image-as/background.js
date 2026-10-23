@@ -1,294 +1,190 @@
-// ═══════════════════════════════════════════════════════════════════
-// Save image as PDF, PNG, JPG, WebP - Service Worker
-// ═══════════════════════════════════════════════════════════════════
-
+// Firefox uses the background event page declared in manifest.json.
 const FORMATS = {
-  pdf:  { label: 'PDF',  mime: 'image/jpeg', ext: '.pdf',  quality: 0.92, imageOnly: true },
-  png:  { label: 'PNG',  mime: 'image/png',  ext: '.png',  quality: null,  imageOnly: true },
-  jpg:  { label: 'JPG',  mime: 'image/jpeg', ext: '.jpg',  quality: 0.92, imageOnly: true },
-  webp: { label: 'WebP', mime: 'image/webp', ext: '.webp', quality: 0.85, imageOnly: true },
-  mp4:  { label: 'MP4',  mime: 'video/mp4',  ext: '.mp4',  quality: null,  imageOnly: false },
-  webm: { label: 'WebM', mime: 'video/webm', ext: '.webm', quality: null,  imageOnly: false }
+  pdf: { label: 'PDF', mime: 'image/jpeg', ext: '.pdf', quality: 0.92 },
+  png: { label: 'PNG', mime: 'image/png', ext: '.png' },
+  jpg: { label: 'JPG', mime: 'image/jpeg', ext: '.jpg', quality: 0.92 },
+  webp: { label: 'WebP', mime: 'image/webp', ext: '.webp', quality: 0.85 }
 };
-
 const PARENT_ID = 'save-image-as-parent';
 const VIDEO_PARENT_ID = 'save-video-as-parent';
-
-// ─── Estado ──────────────────────────────────────────────────────
-
+const pendingDownloads = new Map();
 let settings = { askWhereToSave: false };
-
-chrome.storage.local.get('askWhereToSave', (s) => {
-  settings.askWhereToSave = !!s.askWhereToSave;
+const settingsReady = new Promise((resolve) => {
+  chrome.storage.local.get('askWhereToSave', (saved) => {
+    settings.askWhereToSave = !!saved.askWhereToSave;
+    resolve();
+  });
 });
-chrome.storage.onChanged.addListener((changes) => {
-  if (changes.askWhereToSave) settings.askWhereToSave = !!changes.askWhereToSave.newValue;
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.askWhereToSave) settings.askWhereToSave = !!changes.askWhereToSave.newValue;
 });
-
-// ─── Menú contextual ─────────────────────────────────────────────
-
-chrome.runtime.onInstalled.addListener(() => {
-  createContextMenu();
-});
+chrome.runtime.onInstalled.addListener(createContextMenu);
 
 function createContextMenu() {
   chrome.contextMenus.removeAll(() => {
-    // Menú para imágenes
-    chrome.contextMenus.create({
-      id: PARENT_ID,
-      title: 'Save image as...',
-      contexts: ['image']
-    });
-    Object.entries(FORMATS).forEach(([key, fmt]) => {
-      chrome.contextMenus.create({
-        id: 'img_' + key,
-        parentId: PARENT_ID,
-        title: `Save as ${fmt.label}`,
-        contexts: ['image']
-      });
-    });
-
-    // Menú para videos
-    chrome.contextMenus.create({
-      id: VIDEO_PARENT_ID,
-      title: 'Save video as...',
-      contexts: ['video']
-    });
-    ['mp4', 'webm'].forEach((key) => {
-      chrome.contextMenus.create({
-        id: 'vid_' + key,
-        parentId: VIDEO_PARENT_ID,
-        title: `Save as ${FORMATS[key].label}`,
-        contexts: ['video']
-      });
-    });
+    chrome.contextMenus.create({ id: PARENT_ID, title: 'Guardar imagen como…', contexts: ['image'] });
+    for (const [key, format] of Object.entries(FORMATS)) {
+      chrome.contextMenus.create({ id: 'img_' + key, parentId: PARENT_ID, title: 'Guardar como ' + format.label, contexts: ['image'] });
+    }
+    chrome.contextMenus.create({ id: 'img_original', parentId: PARENT_ID, title: 'Descargar original', contexts: ['image'] });
+    chrome.contextMenus.create({ id: VIDEO_PARENT_ID, title: 'Guardar video…', contexts: ['video'] });
+    chrome.contextMenus.create({ id: 'vid_original', parentId: VIDEO_PARENT_ID, title: 'Descargar original (sin convertir)', contexts: ['video'] });
   });
 }
 
-// ─── Conversión de formato ───────────────────────────────────────
-
-async function fetchImageAsBlob(imageUrl) {
-  const resp = await fetch(imageUrl, {
-    mode: 'cors',
-    cache: 'force-cache',
-    headers: { 'Accept': 'image/*' }
-  });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.blob();
+async function fetchImageAsBlob(url) {
+  const response = await fetch(url, { mode: 'cors', cache: 'force-cache', headers: { Accept: 'image/*' } });
+  if (!response.ok) throw new Error('No se pudo obtener la imagen (HTTP ' + response.status + ').');
+  return response.blob();
 }
 
 async function convertWithOffscreenCanvas(imageBlob, formatKey) {
-  const fmt = FORMATS[formatKey];
-  if (!fmt) throw new Error(`Unknown format: ${formatKey}`);
-
-  const imgBitmap = await createImageBitmap(imageBlob);
-
-  const canvas = new OffscreenCanvas(imgBitmap.width, imgBitmap.height);
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Could not get 2D context');
-
-  ctx.drawImage(imgBitmap, 0, 0);
-
-  // Para PDF necesitamos un paso extra
-  if (formatKey === 'pdf') {
-    const jpegBlob = await canvas.convertToBlob({
-      type: 'image/jpeg',
-      quality: 0.92
-    });
-    const jpegArrayBuf = await jpegBlob.arrayBuffer();
-    const pdfBlob = createPdfFromJpeg(new Uint8Array(jpegArrayBuf), imgBitmap.width, imgBitmap.height);
-    return { blob: pdfBlob, ext: '.pdf' };
-  }
-
-  const blob = await canvas.convertToBlob({
-    type: fmt.mime,
-    quality: fmt.quality ?? undefined
-  });
-
-  return { blob, ext: fmt.ext };
-}
-
-// ─── Generación de PDF mínimo ────────────────────────────────────
-
-function createPdfFromJpeg(jpegData, width, height) {
-  return buildPdfBinary(jpegData, Math.round(width), Math.round(height));
+  if (!Object.hasOwn(FORMATS, formatKey)) throw new Error('Formato de imagen no admitido.');
+  const format = FORMATS[formatKey];
+  if (!format) throw new Error('Formato de imagen no admitido.');
+  const bitmap = await createImageBitmap(imageBlob);
+  try {
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('No se pudo crear el lienzo de conversión.');
+    if (format.mime === 'image/jpeg') {
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, bitmap.width, bitmap.height);
+    }
+    context.drawImage(bitmap, 0, 0);
+    const blob = await canvas.convertToBlob({ type: format.mime, quality: format.quality });
+    if (blob.type.toLowerCase() !== format.mime) throw new Error('El navegador no pudo codificar el formato ' + format.label + '.');
+    if (formatKey === 'pdf') {
+      const jpeg = new Uint8Array(await blob.arrayBuffer());
+      return { blob: buildPdfBinary(jpeg, bitmap.width, bitmap.height), ext: format.ext };
+    }
+    return { blob, ext: format.ext };
+  } finally { bitmap.close(); }
 }
 
 function buildPdfBinary(jpegData, width, height) {
-  const w = width;
-  const h = height;
-  const jpegLen = jpegData.byteLength;
-
-  const contentStream = `q\n${w} 0 0 ${h} 0 0 cm\n/Img1 Do\nQ\n`;
-  const contentStreamLen = contentStream.length;
-
-  // Build all objects as strings first
-  const obj1 = `1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`;
-  const obj2 = `2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n`;
-  const obj3 = `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${w} ${h}] /Contents 4 0 R /Resources << /XObject << /Img1 5 0 R >> >> >>\nendobj\n`;
-  const obj4 = `4 0 obj\n<< /Length ${contentStreamLen} >>\nstream\n${contentStream}\nendstream\nendobj\n`;
-  const obj5Header = `5 0 obj\n<< /Type /XObject /Subtype /Image /Width ${w} /Height ${h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegLen} >>\nstream\n`;
-
-  const header = '%PDF-1.4\n%\xFF\xFF\xFF\xFF\n';
-
-  // Calculate offsets
-  let offset = header.length;
-  const offsets = [];
-  offsets.push(offset); obj1; // 1
-  offset += new TextEncoder().encode(obj1).length;
-  offsets.push(offset); // 2
-  offset += new TextEncoder().encode(obj2).length;
-  offsets.push(offset); // 3
-  offset += new TextEncoder().encode(obj3).length;
-  offsets.push(offset); // 4
-  offset += new TextEncoder().encode(obj4).length;
-  offsets.push(offset); // 5 header
-  offset += new TextEncoder().encode(obj5Header).length;
-  offsets.push(offset); // jpeg data start
-  offset += jpegLen;
-  const endstreamEndobj = '\nendstream\nendobj\n';
-  offset += new TextEncoder().encode(endstreamEndobj).length;
-
-  // Xref
-  const xrefOffset = offset;
-  const xref = `xref\n0 6\n0000000000 65535 f \n${String(offsets[0]).padStart(10, '0')} 00000 n \n${String(offsets[1]).padStart(10, '0')} 00000 n \n${String(offsets[2]).padStart(10, '0')} 00000 n \n${String(offsets[3]).padStart(10, '0')} 00000 n \n${String(offsets[4]).padStart(10, '0')} 00000 n \ntrailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
-
-  // Combine everything as bytes
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) throw new Error('Dimensiones de imagen inválidas.');
   const encoder = new TextEncoder();
-  const parts = [
-    encoder.encode(header),
-    encoder.encode(obj1),
-    encoder.encode(obj2),
-    encoder.encode(obj3),
-    encoder.encode(obj4),
-    encoder.encode(obj5Header),
-    jpegData,
-    encoder.encode(endstreamEndobj),
-    encoder.encode(xref)
-  ];
-
-  const totalLen = parts.reduce((s, p) => s + p.byteLength, 0);
-  const result = new Uint8Array(totalLen);
-  let pos = 0;
-  for (const part of parts) {
-    result.set(part, pos);
-    pos += part.byteLength;
+  const content = encoder.encode(`q\n${width} 0 0 ${height} 0 0 cm\n/Img1 Do\nQ\n`);
+  const parts = [encoder.encode('%PDF-1.4\n%\xFF\xFF\xFF\xFF\n')];
+  const offsets = [];
+  let offset = parts[0].byteLength;
+  function addObject(number, chunks) {
+    offsets.push(offset);
+    for (const chunk of [encoder.encode(`${number} 0 obj\n`), ...chunks, encoder.encode('\nendobj\n')]) {
+      parts.push(chunk); offset += chunk.byteLength;
+    }
   }
-
-  return new Blob([result], { type: 'application/pdf' });
+  addObject(1, [encoder.encode('<< /Type /Catalog /Pages 2 0 R >>')]);
+  addObject(2, [encoder.encode('<< /Type /Pages /Kids [3 0 R] /Count 1 >>')]);
+  addObject(3, [encoder.encode(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${width} ${height}] /Contents 4 0 R /Resources << /XObject << /Img1 5 0 R >> >> >>`)]);
+  addObject(4, [encoder.encode(`<< /Length ${content.byteLength} >>\nstream\n`), content, encoder.encode('\nendstream')]);
+  addObject(5, [encoder.encode(`<< /Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegData.byteLength} >>\nstream\n`), jpegData, encoder.encode('\nendstream')]);
+  const xref = offsets.map(position => String(position).padStart(10, '0') + ' 00000 n \n').join('');
+  parts.push(encoder.encode(`xref\n0 6\n0000000000 65535 f \n${xref}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${offset}\n%%EOF\n`));
+  return new Blob(parts, { type: 'application/pdf' });
 }
 
-// ─── Handler para downloadOriginal desde content.js ──────────
-
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'downloadOriginal') {
-    const url = request.imageUrl;
-    if (!url || url.startsWith('data:')) { sendResponse({ success: false }); return; }
-    const filename = url.split('/').pop()?.split('?')[0] || 'image.jpg';
-    chrome.downloads.download({
-      url,
-      filename,
-      saveAs: settings.askWhereToSave,
-      conflictAction: 'uniquify'
-    }, (id) => {
-      sendResponse({ success: !chrome.runtime.lastError, downloadId: id });
-    });
-    return true; // keep channel open
-  }
-});
-
-// ─── Manejo de clics en el menú ─────────────────────────────────
-
-chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (!info.srcUrl) return;
-  const menuItemId = String(info.menuItemId);
-
-  // Determinar si es imagen o video y extraer el format key
-  let formatKey;
-  let isVideo = menuItemId.startsWith('vid_');
-
-  if (menuItemId === PARENT_ID || menuItemId === VIDEO_PARENT_ID) return;
-  if (menuItemId.startsWith('img_')) {
-    formatKey = menuItemId.replace('img_', '');
-  } else if (menuItemId.startsWith('vid_')) {
-    formatKey = menuItemId.replace('vid_', '');
-  } else return;
-
-  if (!FORMATS[formatKey]) return;
-
-  const mediaUrl = info.srcUrl;
-  updateBadge(tab?.id, '...');
-
-  try {
-    if (isVideo) {
-      // Videos: descargar directamente sin conversión
-      const filename = generateFilename(mediaUrl, formatKey, true);
-      chrome.downloads.download({
-        url: mediaUrl,
-        filename,
-        saveAs: settings.askWhereToSave,
-        conflictAction: 'uniquify'
-      });
-      clearBadge(tab?.id);
-    } else {
-      // Imágenes: convertir con OffscreenCanvas
-      const filename = generateFilename(mediaUrl, formatKey);
-      const imageBlob = await fetchImageAsBlob(mediaUrl);
-      const { blob } = await convertWithOffscreenCanvas(imageBlob, formatKey);
-
-      const downloadOptions = {
-        url: URL.createObjectURL(blob),
-        filename,
-        saveAs: settings.askWhereToSave,
-        conflictAction: 'uniquify'
-      };
-
-      chrome.downloads.download(downloadOptions, () => {
-        if (chrome.runtime.lastError) {
-          console.error('[Save image as] Error:', chrome.runtime.lastError.message);
-        }
-        setTimeout(() => URL.revokeObjectURL(downloadOptions.url), 5000);
-        clearBadge(tab?.id);
-      });
-    }
-  } catch (err) {
-    console.error('[Save media as] Error:', err);
-    // Fallback: descargar original
-    chrome.downloads.download({
-      url: mediaUrl,
-      filename: isVideo ? `video${FORMATS[formatKey].ext}` : `image${FORMATS[formatKey].ext}`,
-      saveAs: settings.askWhereToSave,
-      conflictAction: 'uniquify'
-    });
-    clearBadge(tab?.id);
-  }
-});
-
-// ─── Utilidades ──────────────────────────────────────────────────
-
-function generateFilename(mediaUrl, formatKey, isVideo) {
-  const ext = FORMATS[formatKey].ext;
-  const fallback = isVideo ? 'video' : 'image';
+function generateFilename(mediaUrl, formatKey) {
+  if (!Object.hasOwn(FORMATS, formatKey)) throw new Error('Formato de imagen no admitido.');
+  const format = FORMATS[formatKey];
+  if (!format) throw new Error('Formato de imagen no admitido.');
+  let base = 'image';
   try {
     const url = new URL(mediaUrl);
-    const path = url.pathname;
-    const name = path.split('/').pop()?.split('?')[0] || fallback;
-    const baseName = name.replace(/\.[^.]+$/, '') || fallback;
-    return `${baseName}${ext}`;
-  } catch {
-    return `${fallback}_${Date.now()}${ext}`;
+    if (['http:', 'https:', 'file:'].includes(url.protocol)) {
+      const name = url.pathname.split('/').pop();
+      if (name) { try { base = decodeURIComponent(name); } catch { base = name; } }
+    }
+  } catch { /* Use the generic image name for non-URL inputs. */ }
+  base = base.replace(/\.[^.]+$/, '').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/[. ]+$/g, '').slice(0, 120) || 'image';
+  return base + format.ext;
+}
+
+function originalUrl(url, base) {
+  if (typeof url !== 'string' || !url.trim()) throw new Error('No se encontró una URL de medio válida.');
+  const resolved = base ? new URL(url, base) : new URL(url);
+  if (!['http:', 'https:', 'file:'].includes(resolved.protocol)) throw new Error('Este medio no tiene una URL descargable. Los streams blob no se convierten en archivos de video.');
+  return resolved.href;
+}
+function showError(tabId, error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error('[Save image as]', message);
+  chrome.storage.local.set({ lastError: message });
+  setBadge(tabId, '!', '#c62828', 'Error: ' + message);
+}
+function setBadge(tabId, text, color = '#0095f6', title = 'Save image as…') {
+  if (tabId == null) return;
+  chrome.action.setBadgeText({ tabId, text });
+  chrome.action.setBadgeBackgroundColor({ tabId, color });
+  chrome.action.setTitle({ tabId, title });
+}
+
+function finishDownload(id, state) {
+  const pending = pendingDownloads.get(id);
+  if (!pending || !['complete', 'interrupted'].includes(state)) return;
+  pendingDownloads.delete(id);
+  if (pending.objectUrl) URL.revokeObjectURL(pending.objectUrl);
+  if (state === 'interrupted') showError(pending.tabId, new Error('La descarga se interrumpió o fue cancelada.'));
+  else setBadge(pending.tabId, '');
+}
+chrome.downloads.onChanged.addListener(delta => finishDownload(delta.id, delta.state?.current));
+
+async function startDownload(options, tabId, objectUrl) {
+  await settingsReady;
+  try {
+    const id = await new Promise((resolve, reject) => {
+      chrome.downloads.download({ ...options, saveAs: settings.askWhereToSave, conflictAction: 'uniquify' }, (downloadId) => {
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else if (!Number.isInteger(downloadId)) reject(new Error('No se pudo iniciar la descarga.'));
+        else resolve(downloadId);
+      });
+    });
+    pendingDownloads.set(id, { tabId, objectUrl });
+    setBadge(tabId, '↓');
+    // The download may have completed before its creation callback ran.
+    chrome.downloads.search({ id }, items => {
+      if (!chrome.runtime.lastError && items[0]) finishDownload(id, items[0].state);
+    });
+    return id;
+  } catch (error) {
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    throw error;
   }
 }
 
-function updateBadge(tabId, text) {
-  if (!tabId) return;
-  try {
-    chrome.action.setBadgeText({ text, tabId });
-    chrome.action.setBadgeBackgroundColor({ color: '#0095f6', tabId });
-  } catch { /* ignore */ }
+async function downloadOriginal(url, tabId, base) {
+  // Omit filename: let Firefox honor the original URL, MIME and Content-Disposition.
+  return startDownload({ url: originalUrl(url, base) }, tabId);
 }
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request?.action !== 'downloadOriginal') return undefined;
+  chrome.storage.local.set({ lastError: '' });
+  downloadOriginal(request.imageUrl, sender.tab?.id, sender.url).then(
+    id => sendResponse({ success: true, downloadId: id }),
+    error => { showError(sender.tab?.id, error); sendResponse({ success: false, error: error.message }); }
+  );
+  return true;
+});
 
-function clearBadge(tabId) {
-  if (!tabId) return;
-  try { chrome.action.setBadgeText({ text: '', tabId }); } catch { /* ignore */ }
+async function handleMenuClick(info, tab) {
+  if (!info.srcUrl) return;
+  const key = String(info.menuItemId);
+  if (key !== 'vid_original' && key !== 'img_original' && !(key.startsWith('img_') && Object.hasOwn(FORMATS, key.slice(4)))) return;
+  chrome.storage.local.set({ lastError: '' });
+  setBadge(tab?.id, '…');
+  try {
+    if (key === 'vid_original' || key === 'img_original') {
+      await downloadOriginal(info.srcUrl, tab?.id);
+    } else {
+      const format = key.slice(4);
+      const image = await fetchImageAsBlob(info.srcUrl);
+      const { blob } = await convertWithOffscreenCanvas(image, format);
+      const objectUrl = URL.createObjectURL(blob);
+      await startDownload({ url: objectUrl, filename: generateFilename(info.srcUrl, format) }, tab?.id, objectUrl);
+    }
+  } catch (error) {
+    showError(tab?.id, new Error(error.message + ' Puedes usar «Descargar original» si la URL es accesible.'));
+  }
 }
+chrome.contextMenus.onClicked.addListener(handleMenuClick);

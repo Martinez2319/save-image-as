@@ -92,7 +92,7 @@ function applyHighlight() {
 
   // Resaltar videos
   document.querySelectorAll('video').forEach((el) => {
-    const hasSrc = el.getAttribute('src') || el.querySelector('source')?.getAttribute('src');
+    const hasSrc = resolveMediaUrl(el);
     if (hasSrc) {
       el.classList.add('sia-highlighted');
       el.addEventListener('click', siaMediaClickHandler);
@@ -111,29 +111,27 @@ function removeHighlight() {
   });
 }
 
+function resolveMediaUrl(el) {
+  const source = el.tagName.toLowerCase() === 'video' ? el.querySelector('source') : null;
+  const candidate = el.currentSrc || el.src || source?.src || el.getAttribute('src') || source?.getAttribute('src');
+  if (!candidate) return '';
+  try {
+    const url = new URL(candidate, document.baseURI);
+    return ['http:', 'https:', 'file:'].includes(url.protocol) ? url.href : '';
+  } catch { return ''; }
+}
+
 function siaMediaClickHandler(e) {
+  const el = e.currentTarget;
+  const url = resolveMediaUrl(el);
+  if (!url) return;
   e.stopPropagation();
   e.preventDefault();
-
-  const el = e.currentTarget;
-  const tag = el.tagName.toLowerCase();
-  let url = '';
-
-  if (tag === 'img') {
-    url = el.getAttribute('src') || '';
-  } else if (tag === 'video') {
-    url = el.getAttribute('src') || el.querySelector('source')?.getAttribute('src') || '';
-  }
-
-  if (!url || url.startsWith('data:') || url.startsWith('blob:')) return;
-
-  chrome.runtime.sendMessage({
-    action: 'downloadOriginal',
-    imageUrl: url,
-    isVideo: tag === 'video'
+  chrome.runtime.sendMessage({ action: 'downloadOriginal', imageUrl: url }, response => {
+    const error = chrome.runtime.lastError?.message || (response?.success ? '' : response?.error || 'No se pudo iniciar la descarga.');
+    const state = error ? 'sia-download-error' : 'sia-download-success';
+    el.classList.add(state);
+    if (error) console.warn('[Save image as]', error);
+    setTimeout(() => el.classList.remove(state), 1500);
   });
-
-  // Feedback visual
-  el.style.outline = '3px solid #00c853';
-  setTimeout(() => { el.style.outline = ''; }, 1000);
 }

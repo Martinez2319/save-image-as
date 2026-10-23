@@ -1,0 +1,12 @@
+{
+  "name": "save-image-as",
+  "version": "1.0.1",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "lint": "addons-linter save-image-as --warnings-as-errors",
+    "build": "python scripts/build.py"
+  },
+  "devDependencies": { "addons-linter": "10.14.0" },
+  "engines": { "node": ">=22" }
+}

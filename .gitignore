@@ -17,13 +17,17 @@ desktop.ini
 
 # Node (if any)
 node_modules/
-package-lock.json
+web-ext-artifacts/
+artifacts/
+__pycache__/
 
 # Unrelated files in this directory (Descargas)
 *.iso
 *.deb
 *.xlsx
 *.py
+!scripts/*.py
+!tests/*.py
 instagram-downloader/
 Instagram/
 Bloc de notas de OneNote/

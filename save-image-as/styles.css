@@ -76,3 +76,6 @@
   outline: 3px solid rgba(0, 149, 246, 1) !important;
   filter: brightness(1.1) !important;
 }
+
+.sia-download-success { outline: 3px solid #00c853 !important; }
+.sia-download-error { outline: 3px solid #ef5350 !important; }
